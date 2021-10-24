@@ -17,6 +17,11 @@ function randInt(min, max) {
     return Math.floor(Math.random() * (max-min+1)) + min;
 }
 
+function testCircle(x, y, color="black"){
+    stroke(color);
+    ellipse(x, y, 10, 10);
+}
+
 function rotMx(angle) {
     let mx = new Matrix(2,2);
     mx.data[0][0] = Math.cos(angle);
@@ -161,7 +166,7 @@ class Capsule {
         this.elasticity = 1;
         this.length = this.end.subtract(this.start).magnitude();
         this.m = m;
-        this.inertia = this.m * (this.r**2 +(this.length+2*this.r)**2) / 12;
+        this.inertia = this.m * (2*this.r**2 +(this.length+2*this.r)**2) / 12;
         if (this.m === 0) {
             this.inv_m = 0;
             this.inv_inertia = 0
@@ -236,10 +241,90 @@ class Capsule {
     };
 }
 
+class Box{
+    constructor(x1, y1, x2, y2, w, m) {
+        this.vertex = [];
+        this.vertex[0] = new Vector (x1, y1);
+        this.vertex[1] = new Vector (x2, y2);
+        this.edge = this.vertex[1].subtract(this.vertex[0]);
+        this.length = this.edge.magnitude();
+        this.dir = this.edge.unit();
+        this.refDir = this.edge.unit();
+        this.width = w;
+        this.vertex[2] = this.vertex[1].add(this.dir.normal().multiply(this.width));
+        this.vertex[3] = this.vertex[2].add(this.dir.multiply(-this.length));
+
+        this.elasticity = 1;
+        this.m = m;
+        this.inertia = this.m * (this.width**2 +(this.length+2*this.width)**2) / 12;
+        if (this.m === 0) {
+            this.inv_m = 0;
+            this.inv_inertia = 0
+        } else {
+            this.inv_m = 1 / this.m;
+            this.inv_inertia = 1 / this.inertia;
+        }
+        this.velocity = new Vector(0,0);
+        this.acc = new Vector (0,0);
+        this.acceleration = 1;
+        this.pos = this.vertex[0].add(this.dir.multiply(this.length/2)).add(this.dir.normal().multiply(this.width/2));
+        this.angVel = 0;
+        this.angle = 0;
+        this.player = false;
+    }
+
+    draw(){
+        stroke("black")
+        noFill();
+        beginShape();
+        vertex(this.vertex[0].x, this.vertex[0].y);
+        vertex(this.vertex[1].x, this.vertex[1].y);
+        vertex(this.vertex[2].x, this.vertex[2].y);
+        vertex(this.vertex[3].x, this.vertex[3].y);
+        vertex(this.vertex[0].x, this.vertex[0].y);
+        endShape()
+        testCircle(this.pos.x, this.pos.y);
+    };
+
+    keyControl(){
+        if (keyIsDown(UP_ARROW)){
+            this.acc = this.dir.multiply(-this.acceleration);
+        }
+        if (keyIsDown(DOWN_ARROW)) {
+            this.acc = this.dir.multiply(this.acceleration);
+        }
+        if (!(keyIsDown(UP_ARROW)) && (!(keyIsDown(DOWN_ARROW)))){
+            this.acc = new Vector (0, 0);
+        }
+        if (keyIsDown(LEFT_ARROW)){
+            this.angVel = -0.1;
+        }
+        if (keyIsDown(RIGHT_ARROW)){
+            this.angVel = 0.1;
+        }
+    };
+    reposition(){
+        this.acc = this.acc.unit().multiply(this.acceleration);
+        this.velocity = this.velocity.add(this.acc);
+        this.velocity = this.velocity.multiply(1-friction);
+        this.pos = this.pos.add(this.velocity);
+        this.angle += this.angVel;
+        this.angVel *= 0.99;
+        let rotMat = rotMx(this.angle);
+        this.dir = rotMat.multiplyVec(this.refDir);
+        this.vertex[0] = this.pos.add(this.dir.multiply(-this.length/2)).add(this.dir.normal().multiply(this.width/2));
+        this.vertex[1] = this.pos.add(this.dir.multiply(-this.length/2)).add(this.dir.normal().multiply(-this.width/2));
+        this.vertex[2] = this.pos.add(this.dir.multiply(this.length/2)).add(this.dir.normal().multiply(-this.width/2));
+        this.vertex[3] = this.pos.add(this.dir.multiply(this.length/2)).add(this.dir.normal().multiply(this.width/2));
+    };
+}
+
+
 class Wall {
     constructor(x1, y1, x2, y2) {
         this.start = new Vector (x1, y1);
         this.end = new Vector (x2, y2);
+        this.vertex = [this.start, this.end];
         this.center = this.start.add(this.end).multiply(0.5);
         this.length = this.end.subtract(this.start).magnitude();
         this.dir = this.end.subtract(this.start).unit();
@@ -359,18 +444,15 @@ function coll_res_cc(c1, c2){
     impAug2 = impAug2 * c1.inv_inertia * impAug2;
 
     let relVel = closVel1.subtract(closVel2);
-    // let relVel = c1.velocity.subtract(c2.velocity);
     let sepVel = Vector.dot(relVel, normal);
     let new_sepVel = -sepVel * Math.min(c1.elasticity, c2.elasticity);
     let vsep_diff = new_sepVel - sepVel;
     let impulse = vsep_diff / (c1.inv_m + c2.inv_m + impAug1 + impAug2);    
-    // let impulse = vsep_diff / (c1.inv_m + c2.inv_m);
     let impulseVec = normal.multiply(impulse);
 
     // changing Velocities
     c1.velocity = c1.velocity.add(impulseVec.multiply(c1.inv_m));
     c2.velocity = c2.velocity.add(impulseVec.multiply(-c2.inv_m));
-
     c1.angVel += c1.inv_inertia * Vector.cross(collArm1, impulseVec)
     c2.angVel -= c2.inv_inertia * Vector.cross(collArm2, impulseVec)
 
@@ -414,54 +496,113 @@ function closestPointBetweenLS(c1, c2) {
     return closestPoints;
 }
 
+function sat(o1, o2) {
+    axes1 = [];
+    axes2 = [];
+    axes1.push(o1.dir.normal());
+    axes1.push(o1.dir);
+    axes2.push(o2.dir.normal());
+    axes2.push(o2.dir);
+    let proj1, proj2 = 0;
+
+    for (let i=0; i<axes1.length; i++) {
+        proj1 = projShapeOntoAxis(axes1[i], o1);
+        proj2 = projShapeOntoAxis(axes1[i], o2);
+        let overlap = Math.min(proj1.max, proj2.max) - Math.max(proj1.min, proj2.min);
+        if (overlap < 0) {
+            return false;
+        };
+    }
+    for (let i=0; i<axes2.length; i++){
+        proj1 = projShapeOntoAxis(axes2[i], o1);
+        proj2 = projShapeOntoAxis(axes2[i], o2);
+        overlap = Math.min(proj1.max, proj2.max) - Math.max(proj1.min, proj2.min);
+        if (overlap < 0) {
+            return false;
+        };
+    }
+    return true;
+};
+
+function projShapeOntoAxis(axis, obj){
+    let min = Vector.dot(axis, obj.vertex[0]);
+    let max = min;
+    for (let i=0; i<obj.vertex.length; i++){
+        let p = Vector.dot(axis, obj.vertex[i]);
+        if (p<min) {
+            min = p;
+        }
+        if (p>max) {
+            max = p;
+        }
+    }
+    return {
+        min: min,
+        max: max
+    }
+};
 
 function draw() {
     background("beige");
-    BALLS.forEach((b, index) => {
-        b.drawBall();
-        if (b.movable) {
-            b.keyControl();
-        }
+    // BALLS.forEach((b, index) => {
+    //     b.drawBall();
+    //     if (b.movable) {
+    //         b.keyControl();
+    //     }
 
-        WALLS.forEach((w) => {
-            if(coll_det_bw(BALLS[index], w)) {
-                pen_res_bw(BALLS[index], w);
-                coll_res_bw(BALLS[index], w);
-            }
-        });
+    //     WALLS.forEach((w) => {
+    //         if(coll_det_bw(BALLS[index], w)) {
+    //             pen_res_bw(BALLS[index], w);
+    //             coll_res_bw(BALLS[index], w);
+    //         }
+    //     });
         
-        for (let i = index+1; i < BALLS.length; i++) {
-            if (coll_det_bb(BALLS[index], BALLS[i])) {
-            text("collision", 30, 30)
-            pen_res_bb(BALLS[index], BALLS[i]);
-            coll_res_bb(BALLS[index], BALLS[i]);
-            }
-        }
+    //     for (let i = index+1; i < BALLS.length; i++) {
+    //         if (coll_det_bb(BALLS[index], BALLS[i])) {
+    //         text("collision", 30, 30)
+    //         pen_res_bb(BALLS[index], BALLS[i]);
+    //         coll_res_bb(BALLS[index], BALLS[i]);
+    //         }
+    //     }
 
-        b.reposition();
-    });
+    //     b.reposition();
+    // });
 
-    WALLS.forEach((w) => {
-        w.drawWall();
-        w.keyControl();
-        w.reposition();
-    });
+    // WALLS.forEach((w) => {
+    //     w.drawWall();
+    //     w.keyControl();
+    //     w.reposition();
+    // });
 
-    CAPS.forEach((c, index) => {
-        c.drawCaps();
-        if (c.player) {
-            c.keyControl();
-        }
-        for (let i = index+1; i < CAPS.length; i++) {
+    // CAPS.forEach((c, index) => {
+    //     c.drawCaps();
+    //     if (c.player) {
+    //         c.keyControl();
+    //     }
+    //     for (let i = index+1; i < CAPS.length; i++) {
 
-            if (coll_det_cc(CAPS[index], CAPS[i])) {
-                text("collision", 30, 30)
-                pen_res_cc(CAPS[index], CAPS[i]);
-                coll_res_cc(CAPS[index], CAPS[i]);
-            }
-        }
-        c.reposition();
-    });
+    //         if (coll_det_cc(CAPS[index], CAPS[i])) {
+    //             text("collision", 30, 30)
+    //             pen_res_cc(CAPS[index], CAPS[i]);
+    //             coll_res_cc(CAPS[index], CAPS[i]);
+    //         }
+    //     }
+    //     c.reposition();
+    // });
+
+    // wall1.drawWall();
+    // wall2.drawWall();
+
+
+    if (sat(box1, box2)) {
+        text("COLLISION", 10, 10)
+    }
+
+    box1.draw();
+    box2.draw();
+    box1.keyControl();
+    box1.reposition();
+
 
     // let edge1 = new Wall (0, 0, width, 0);
     // let edge2 = new Wall (0, 0, 0, height);
@@ -476,16 +617,19 @@ function draw() {
 
 // let ball1 = new Ball (200, 300, 15, 2);
 // let ball2 = new Ball (200, 200, 20, 0);
-// let wall1 = new Wall (200, 200, 400, 300);
-let cap1 = new Capsule (200, 300, 400, 200, 30, 2);
-let cap2 = new Capsule (150, 50, 150, 300, 30, 3);
+// let cap1 = new Capsule (200, 300, 400, 200, 30, 2);
+// let cap2 = new Capsule (150, 50, 150, 300, 30, 3);
+// let wall1 = new Wall (200, 100, 200, 180);
+// let wall2 = new Wall (150, 300, 350, 300); 
 
-// let wall2 = new Wall (300, 200, 400, 200); 
+let box1 = new Box (200,200, 300, 300, 50, 3);
+let box2 = new Box (400,200, 400, 300, 50, 3);
+
 // let edge1 = new Wall (0, 0, 100, height)
 // let ball3 = new Ball (250, 320, 30);
 // let ball4 = new Ball (300, 200, 20);
 // let ball5 = new Ball (300, 200, 40);
 // let ball6 = new Ball (350, 220, 30);
 // BALLS[0].movable = true;
-cap1.player = true;
+// cap1.player = true;
 // ball2.elasticity = 0.3
