@@ -100,10 +100,77 @@ class Matrix {
     }
 }
 
+class Line {
+    constructor(x0, y0, x1, y1) {
+        this.vertex = [];
+        this.vertex[0] = new Vector (x0, y0);
+        this.vertex[1] = new Vector (x1, y1);
+        this.dir = this.vertex[1].subtract(this.vertex[0].unit());
+        this.magnitude = this.vertex[1].subtract(this.vertex[0]).magnitude();
+    }
+
+    draw() {
+        stroke("black");
+        line(this.vertex[0].x, this.vertex[0].y, this.vertex[1].x, this.vertex[1].y);
+    }
+}
+class Circle {
+    constructor(x, y, r) {
+        this.vertex = [];
+        this.pos = new Vector(x,y);
+        this.r = r;
+    }
+
+    draw(){
+        stroke("red")
+        noFill();
+        ellipse(this.pos.x, this.pos.y, 2*this.r, 2*this.r);
+        // fill("red");
+    }
+}
+
+class Rectangle {
+    constructor(x1, y1, x2, y2, w) {
+        this.vertex = [];
+        this.vertex[0] = new Vector (x1, y1);
+        this.vertex[1] = new Vector (x2, y2);
+        this.dir = this.vertex[1].subtract(this.vertex[0]).unit();
+        this.refDir = this.vertex[1].subtract(this.vertex[0]).unit();
+        this.length = this.vertex[1].subtract(this.vertex[0]).magnitude();
+        this.width = w;
+        this.vertex[2] = this.vertex[1].add(this.dir.normal().multiply(this.width));
+        this.vertex[3] = this.vertex[2].add(this.dir.normal().multiply(-this.length));
+        this.pos = this.vertex[0].add(this.dir.multiply(this.length/2)).add(this.dir.normal().multiply(this.width/2));
+        this.angle = 0;
+        this.rotMat = new Matrix(2,2);
+    }
+
+    draw() {
+        stroke("black")
+        noFill();
+        beginShape();
+        vertex(this.vertex[0].x, this.vertex[0].y);
+        vertex(this.vertex[1].x, this.vertex[1].y);
+        vertex(this.vertex[2].x, this.vertex[2].y);
+        vertex(this.vertex[3].x, this.vertex[3].y);
+        vertex(this.vertex[0].x, this.vertex[0].y);
+        endShape()
+    }
+
+    getVertices() {
+        this.rotMat = rotMx(this.angle);
+        this.dir = this.rotMat.multiplyVec(this.refDir)
+        this.vertex[0] = this.pos.add(this.dir.multiply(-this.length/2)).add(this.dir.normal().multiply(this.width/2));
+        this.vertex[1] = this.pos.add(this.dir.multiply(-this.length/2)).add(this.dir.normal().multiply(-this.width/2));
+        this.vertex[2] = this.pos.add(this.dir.multiply(this.length/2)).add(this.dir.normal().multiply(-this.width/2));
+        this.vertex[3] = this.pos.add(this.dir.multiply(this.length/2)).add(this.dir.normal().multiply(this.width/2));
+    }
+}
+
 class Ball {
     constructor(x, y, r, m) {
-        this.pos = new Vector (x, y);
-        this.r = r;
+        this.component = [new Circle(x, y,r)]
+        // this.pos = new Vector (x, y);
         this.m = m;
         if (this.m === 0) {
             this.inv_m = 0;
@@ -114,19 +181,14 @@ class Ball {
         this.velocity = new Vector(0,0);
         this.acc = new Vector (0,0);
         this.acceleration = 1;
-        this.movable = false
+        this.angVel = 0;
+        this.player = false
         BALLS.push(this);
     }
 
-    drawBall() {
-        fill("yellow");
-        stroke("black");
-        ellipse (this.pos.x, this.pos.y, this.r*2, this.r*2);
-        this.velocity.drawVector(this.x, this.y, 100, "green");
-        stroke("black");
-        fill("black");
-        text(str("m: " + this.m), this.pos.x-10, this.pos.y-5);
-        text(str("e: " + this.elasticity), this.pos.x-10, this.pos.y+5);       
+    draw() {
+        this.component[0].draw();
+    
     }
 
     keyControl(){
@@ -154,17 +216,17 @@ class Ball {
         this.acc = this.acc.unit().multiply(this.acceleration);
         this.velocity = this.velocity.add(this.acc);
         this.velocity = this.velocity.multiply(1-friction);
-        this.pos = this.pos.add(this.velocity);
+        this.component[0].pos = this.component[0].pos.add(this.velocity);
     }
 }
 
 class Capsule {
     constructor(x1, y1, x2, y2, r, m) {
-        this.start = new Vector (x1, y1);
-        this.end = new Vector(x2, y2);
-        this.r = r;
+        this.component = [new Circle (x1, y1, r), new Circle (x2, y2, r)]
+        let rec1 = this.component[1].pos.add(this.component[1].pos.subtract(this.component[0].pos).unit().normal().multiply(r));
+        let rec2 = this.component[0].pos.add(this.component[1].pos.subtract(this.component[0].pos).unit().normal().multiply(r));
+        this.component.unshift(new Rectangle(rec1.x, rec1.y, rec2.x, rec2.y, 2*r));
         this.elasticity = 1;
-        this.length = this.end.subtract(this.start).magnitude();
         this.m = m;
         this.inertia = this.m * (2*this.r**2 +(this.length+2*this.r)**2) / 12;
         if (this.m === 0) {
@@ -177,43 +239,23 @@ class Capsule {
         this.velocity = new Vector(0,0);
         this.acc = new Vector (0,0);
         this.acceleration = 1;
-        this.pos = this.start.add(this.end).multiply(0.5);
-        this.dir = this.end.subtract(this.start).unit();
-        this.refDir = this.end.subtract(this.start).unit();
-        this.refAngle = Math.acos(Vector.dot(this.refDir, new Vector(1, 0)));
         this.angVel = 0;
-        this.angle = 0;
-        if (Vector.cross(this.refDir, new Vector (1, 0)) > 0) {
-            this.refAngle *= -1;
-        }
         this.player = false;
         CAPS.push(this);
     }
 
-    drawCaps(){
-        // stroke("black");
-        noStroke();
-        fill("lightgreen");
-        // noFill();
-        let cur_angle = this.refAngle + this.angle
-        arc(this.start.x, this.start.y, this.r*2, this.r*2, cur_angle+HALF_PI, cur_angle+3**HALF_PI, PIE);
-        arc(this.end.x, this.end.y, this.r*2, this.r*2, cur_angle-HALF_PI, cur_angle+HALF_PI, PIE);
-        beginShape();
-        vertex(this.start.x + this.r * Math.cos(cur_angle+HALF_PI), this.start.y + this.r * Math.sin(cur_angle+HALF_PI));
-        vertex(this.start.x + this.r * Math.cos((cur_angle+3*HALF_PI)), this.start.y + this.r * Math.sin(cur_angle+3*HALF_PI));
-        vertex(this.end.x + this.r * Math.cos(cur_angle-HALF_PI), this.end.y + this.r * Math.sin(cur_angle-HALF_PI));
-        vertex(this.end.x + this.r * Math.cos(cur_angle+HALF_PI), this.end.y + this.r * Math.sin(cur_angle+HALF_PI));
-        endShape(CLOSE); 
-        stroke("black");
-        line(this.start.x, this.start.y, this.end.x, this.end.y);     
+    draw(){
+        this.component[0].draw();
+        this.component[1].draw();
+        this.component[2].draw();
     };
 
     keyControl(){
         if (keyIsDown(UP_ARROW)){
-            this.acc = this.dir.multiply(-this.acceleration);
+            this.acc = this.component[0].dir.multiply(-this.acceleration);
         }
         if (keyIsDown(DOWN_ARROW)) {
-            this.acc = this.dir.multiply(this.acceleration);
+            this.acc = this.component[0].dir.multiply(this.acceleration);
         }
         if (!(keyIsDown(UP_ARROW)) && (!(keyIsDown(DOWN_ARROW)))){
             this.acc = new Vector (0, 0);
@@ -230,30 +272,18 @@ class Capsule {
         this.acc = this.acc.unit().multiply(this.acceleration);
         this.velocity = this.velocity.add(this.acc);
         this.velocity = this.velocity.multiply(1-friction);
-        this.pos = this.pos.add(this.velocity);
-        this.angle += this.angVel;
-        this.angVel *= 0.99;
-        let rotMat = rotMx(this.angle);
-        this.dir = rotMat.multiplyVec(this.refDir);
-        this.start = this.pos.add(this.dir.multiply(-this.length/2));
-        this.end = this.pos.add(this.dir.multiply(this.length/2));
-        
+        this.component[0].pos = this.component[0].pos.add(this.velocity);
+        this.angVel *= 0.6;
+        this.component[0].angle += this.angVel;
+        this.component[0].getVertices();
+        this.component[1].pos = this.component[0].pos.add(this.component[0].dir.multiply(-this.component[0].length/2));
+        this.component[2].pos = this.component[0].pos.add(this.component[0].dir.multiply(this.component[0].length/2));
     };
 }
 
 class Box{
     constructor(x1, y1, x2, y2, w, m) {
-        this.vertex = [];
-        this.vertex[0] = new Vector (x1, y1);
-        this.vertex[1] = new Vector (x2, y2);
-        this.edge = this.vertex[1].subtract(this.vertex[0]);
-        this.length = this.edge.magnitude();
-        this.dir = this.edge.unit();
-        this.refDir = this.edge.unit();
-        this.width = w;
-        this.vertex[2] = this.vertex[1].add(this.dir.normal().multiply(this.width));
-        this.vertex[3] = this.vertex[2].add(this.dir.multiply(-this.length));
-
+        this.component = [new Rectangle (x1, y1, x2, y2, w)]
         this.elasticity = 1;
         this.m = m;
         this.inertia = this.m * (this.width**2 +(this.length+2*this.width)**2) / 12;
@@ -267,31 +297,20 @@ class Box{
         this.velocity = new Vector(0,0);
         this.acc = new Vector (0,0);
         this.acceleration = 1;
-        this.pos = this.vertex[0].add(this.dir.multiply(this.length/2)).add(this.dir.normal().multiply(this.width/2));
         this.angVel = 0;
-        this.angle = 0;
         this.player = false;
     }
 
     draw(){
-        stroke("black")
-        noFill();
-        beginShape();
-        vertex(this.vertex[0].x, this.vertex[0].y);
-        vertex(this.vertex[1].x, this.vertex[1].y);
-        vertex(this.vertex[2].x, this.vertex[2].y);
-        vertex(this.vertex[3].x, this.vertex[3].y);
-        vertex(this.vertex[0].x, this.vertex[0].y);
-        endShape()
-        testCircle(this.pos.x, this.pos.y);
+        this.component[0].draw();
     };
 
     keyControl(){
         if (keyIsDown(UP_ARROW)){
-            this.acc = this.dir.multiply(-this.acceleration);
+            this.acc = this.component[0].dir.multiply(-this.acceleration);
         }
         if (keyIsDown(DOWN_ARROW)) {
-            this.acc = this.dir.multiply(this.acceleration);
+            this.acc = this.component[0].dir.multiply(this.acceleration);
         }
         if (!(keyIsDown(UP_ARROW)) && (!(keyIsDown(DOWN_ARROW)))){
             this.acc = new Vector (0, 0);
@@ -307,21 +326,17 @@ class Box{
         this.acc = this.acc.unit().multiply(this.acceleration);
         this.velocity = this.velocity.add(this.acc);
         this.velocity = this.velocity.multiply(1-friction);
-        this.pos = this.pos.add(this.velocity);
-        this.angle += this.angVel;
-        this.angVel *= 0.99;
-        let rotMat = rotMx(this.angle);
-        this.dir = rotMat.multiplyVec(this.refDir);
-        this.vertex[0] = this.pos.add(this.dir.multiply(-this.length/2)).add(this.dir.normal().multiply(this.width/2));
-        this.vertex[1] = this.pos.add(this.dir.multiply(-this.length/2)).add(this.dir.normal().multiply(-this.width/2));
-        this.vertex[2] = this.pos.add(this.dir.multiply(this.length/2)).add(this.dir.normal().multiply(-this.width/2));
-        this.vertex[3] = this.pos.add(this.dir.multiply(this.length/2)).add(this.dir.normal().multiply(this.width/2));
+        this.component[0].pos = this.component[0].pos.add(this.velocity);
+        this.angVel *= 0.6;
+        this.component[0].angle += this.angVel;
+        this.component[0].getVertices();
     };
 }
 
 
 class Wall {
     constructor(x1, y1, x2, y2) {
+        this.component = [new Line(x1, y1, x2, y2)]
         this.start = new Vector (x1, y1);
         this.end = new Vector (x2, y2);
         this.vertex = [this.start, this.end];
@@ -336,13 +351,8 @@ class Wall {
         WALLS.push(this);
     }
 
-    drawWall() {
-        let rotMat = rotMx(this.angle);
-        let newDir = rotMat.multiplyVec(this.refUnit);
-        this.start = this.center.add(newDir.multiply(-this.length/2));
-        this.end = this.center.add(newDir.multiply(this.length/2));
-        stroke("black");
-        line(this.start.x, this.start.y, this.end.x, this.end.y);
+    draw() {
+        this.component[0].draw();
     }
 
     keyControl() {
@@ -483,11 +493,11 @@ function closestPointBetweenLS(c1, c2) {
     }
     if (closestPointOnLS(c2.start, c1).subtract(c2.start).magnitude() < shortestDist){
         shortestDist = closestPointOnLS(c2.start, c1).subtract(c2.start).magnitude();
-        closestPoints = [c2.start, closestPointOnLS(c2.start, c1)]
+        closestPoints = [closestPointOnLS(c2.start, c1), c2.start]
     }
     if (closestPointOnLS(c2.end, c1).subtract(c2.end).magnitude() < shortestDist){
         shortestDist = closestPointOnLS(c2.end, c1).subtract(c2.end).magnitude();
-        closestPoints = [c2.end, closestPointOnLS(c2.end, c1)]
+        closestPoints = [closestPointOnLS(c2.end, c1), c2.end]
     }
     stroke("red");
     line(closestPoints[0].x, closestPoints[0].y, closestPoints[1].x, closestPoints[1].y);
@@ -496,41 +506,143 @@ function closestPointBetweenLS(c1, c2) {
     return closestPoints;
 }
 
+function findAxes(o1, o2){
+    let axes = [];
+    if (o1 instanceof Circle && o2 instanceof Circle) {
+        axes.push(o2.pos.subtract(o1.pos).unit());
+        return axes;
+    }
+    if (o1 instanceof Circle) {
+        axes.push(closestVertexToPoint(o2, o1.pos).subtract(o1.pos).unit());
+        axes.push(o2.dir.normal());
+        if (o2  instanceof Rectangle) {
+            axes.push(o2.dir);
+        }
+        return axes;
+    }
+    // if (o1 instanceof Box){
+    //     axes.push(o1.dir.normal());
+    //     axes.push(o1.dir);
+    // }
+    if (o2 instanceof Circle) {
+        axes.push(o1.dir.normal());
+        if (o1  instanceof Rectangle) {
+            axes.push(o1.dir);
+        }
+        axes.push(closestVertexToPoint(o1, o2.pos).subtract(o2.pos).unit());
+        return axes;
+    }
+    // if (o2 instanceof Box){
+    //     axes.push(o2.dir.normal());
+    //     axes.push(o2.dir);
+    // }
+    axes.push(o1.dir.normal());
+    if (o1 instanceof Rectangle) {
+        axes.push(o1.dir);
+    }
+    axes.push(o2.dir.normal());
+    if (o2 instanceof Rectangle){
+        axes.push(o2.dir);
+    }
+    return axes;
+};
+
+function closestVertexToPoint (obj, p){
+    let closestVertex;
+    let minDist = null;
+    for (let i=0; i<obj.vertex.length; i++){
+        if (p.subtract(obj.vertex[i]).magnitude < minDist || minDist === null) {
+            closestVertex = obj.vertex[i];
+            minDist = p.subtract(obj.vertex[i]).magnitude();
+        }
+    }
+    return closestVertex;
+};
+
+function getShapeAxes(obj){
+    if (obj instanceof Circle || obj instanceof Line) {
+        return 1;
+    } 
+    if (obj instanceof Rectangle) {
+        return 2;
+    }
+
+};
+
+function setBallVerticesAlongAxis(obj, axis) {
+    if (obj instanceof Circle) {
+        obj.vertex[0] = obj.pos.add(axis.unit().multiply(-obj.r));
+        obj.vertex[1] = obj.pos.add(axis.unit().multiply(obj.r));
+    }
+}
+
 function sat(o1, o2) {
-    axes1 = [];
-    axes2 = [];
-    axes1.push(o1.dir.normal());
-    axes1.push(o1.dir);
-    axes2.push(o2.dir.normal());
-    axes2.push(o2.dir);
+    let minOverlap = null;
+    let smallestAxis;
+    let vertexObj;
+    let axes = findAxes(o1, o2);
+    let firstShapeAxes = getShapeAxes(o1);
+
+
     let proj1, proj2 = 0;
 
-    for (let i=0; i<axes1.length; i++) {
-        proj1 = projShapeOntoAxis(axes1[i], o1);
-        proj2 = projShapeOntoAxis(axes1[i], o2);
+    for (let i=0; i<axes.length; i++) {
+        proj1 = projShapeOntoAxis(axes[i], o1);
+        proj2 = projShapeOntoAxis(axes[i], o2);
         let overlap = Math.min(proj1.max, proj2.max) - Math.max(proj1.min, proj2.min);
         if (overlap < 0) {
             return false;
         };
+
+        if ((proj1.max > proj2.max && proj1.min < proj2.min) || (proj1.max < proj2.max && proj1.min > proj2.min)) {
+            let mins = Math.abs(proj1.min - proj2.min);
+            let maxs = Math.abs(proj1.max - proj2.max);
+            if (mins <  maxs) {
+                overlap += mins;
+            } else {
+                overlap += maxs;
+                axes[i] = axes[i].multiply(-1);
+            }
+        }
+        if (overlap < minOverlap || minOverlap === null) {
+            minOverlap = overlap;
+            smallestAxis = axes[i];
+            
+            if (i<firstShapeAxes){
+                vertexObj = o2;
+                if (proj1.max > proj2.max) {
+                    smallestAxis = axes[i].multiply(-1);
+                }
+            } else {
+                vertexObj = o1;
+                if (proj1.max < proj2.max) {
+                    smallestAxis = axes[i].multiply(-1);
+                }
+            }
+
+        }
     }
-    for (let i=0; i<axes2.length; i++){
-        proj1 = projShapeOntoAxis(axes2[i], o1);
-        proj2 = projShapeOntoAxis(axes2[i], o2);
-        overlap = Math.min(proj1.max, proj2.max) - Math.max(proj1.min, proj2.min);
-        if (overlap < 0) {
-            return false;
-        };
-    }
-    return true;
+
+    let contactVertex = projShapeOntoAxis(smallestAxis, vertexObj).colVertex;
+    // smallestAxis.drawVector(contactVertex.x, contactVertex.y, minOverlap, "blue");
+    return {
+        pen: minOverlap,
+        axis: smallestAxis,
+        vertex: contactVertex
+
+    };
 };
 
 function projShapeOntoAxis(axis, obj){
+    setBallVerticesAlongAxis(obj, axis);
     let min = Vector.dot(axis, obj.vertex[0]);
     let max = min;
+    let colVertex = obj. vertex[0];
     for (let i=0; i<obj.vertex.length; i++){
         let p = Vector.dot(axis, obj.vertex[i]);
         if (p<min) {
             min = p;
+            colVertex = obj.vertex[i]
         }
         if (p>max) {
             max = p;
@@ -538,15 +650,16 @@ function projShapeOntoAxis(axis, obj){
     }
     return {
         min: min,
-        max: max
+        max: max,
+        colVertex: colVertex
     }
 };
 
 function draw() {
     background("beige");
     // BALLS.forEach((b, index) => {
-    //     b.drawBall();
-    //     if (b.movable) {
+    //     b.draw();
+    //     if (b.player) {
     //         b.keyControl();
     //     }
 
@@ -569,13 +682,13 @@ function draw() {
     // });
 
     // WALLS.forEach((w) => {
-    //     w.drawWall();
+    //     w.draw();
     //     w.keyControl();
     //     w.reposition();
     // });
 
     // CAPS.forEach((c, index) => {
-    //     c.drawCaps();
+    //     c.draw();
     //     if (c.player) {
     //         c.keyControl();
     //     }
@@ -590,18 +703,23 @@ function draw() {
     //     c.reposition();
     // });
 
-    // wall1.drawWall();
-    // wall2.drawWall();
+    // wall1.draw();
+    // wall2.draw();
 
 
-    if (sat(box1, box2)) {
+    cap1.draw();
+    wall1.draw();
+
+    
+    cap1.keyControl();
+    cap1.reposition();
+    for (let i=0; i<cap1.component.length; i++){
+        if (sat(cap1.component[i], wall1.component[0])) {
         text("COLLISION", 10, 10)
+        }
     }
+    
 
-    box1.draw();
-    box2.draw();
-    box1.keyControl();
-    box1.reposition();
 
 
     // let edge1 = new Wall (0, 0, width, 0);
@@ -615,21 +733,21 @@ function draw() {
 //     newBall.elasticity = randInt(0,10)/10;
 // }
 
-// let ball1 = new Ball (200, 300, 15, 2);
-// let ball2 = new Ball (200, 200, 20, 0);
-// let cap1 = new Capsule (200, 300, 400, 200, 30, 2);
+let ball1 = new Ball (200, 300, 50, 2);
+let ball2 = new Ball (200, 200, 20, 3);
+let cap1 = new Capsule (200, 300, 400, 200, 30, 2);
 // let cap2 = new Capsule (150, 50, 150, 300, 30, 3);
-// let wall1 = new Wall (200, 100, 200, 180);
+let wall1 = new Wall (200, 100, 200, 180);
 // let wall2 = new Wall (150, 300, 350, 300); 
 
 let box1 = new Box (200,200, 300, 300, 50, 3);
-let box2 = new Box (400,200, 400, 300, 50, 3);
+// let box2 = new Box (400,200, 400, 300, 100, 3);
 
 // let edge1 = new Wall (0, 0, 100, height)
 // let ball3 = new Ball (250, 320, 30);
 // let ball4 = new Ball (300, 200, 20);
 // let ball5 = new Ball (300, 200, 40);
 // let ball6 = new Ball (350, 220, 30);
-// BALLS[0].movable = true;
+// BALLS[0].player = true;
 // cap1.player = true;
 // ball2.elasticity = 0.3
