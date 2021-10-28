@@ -1,9 +1,35 @@
 const BODIES = [];
 const COLLISIONS = [];
 
+let box; 
 function setup() {
     createCanvas(640, 400);
+    box = createButton("Add box");
+    box.mousePressed(addBox)
+    capsule = createButton("Add capsule");
+    capsule.mousePressed(addCapsule);
+    ball = createButton("Add ball");
+    ball.mousePressed(addBall);
+    star = createButton("Add star");
+    star.mousePressed(addStar);
+    
 }
+
+function addBox(){
+    addBody("box")
+}
+function addCapsule(){
+    console.log("capsule")
+    addBody("capsule")
+}
+function addBall(){
+    addBody("ball")
+}
+function addStar(){
+    addBody("star")
+}
+
+
 
 function round(number, precision) {
     let factor = 10**precision;
